@@ -16,53 +16,39 @@ from sktime.transformations.panel.rocket import MiniRocket, MiniRocketMultivaria
 from sktime.datasets import load_from_arff_to_dataframe
 from sktime.datatypes._panel._convert import (from_3d_numpy_to_nested,from_nested_to_3d_numpy,)
 from scipy.io import arff               
-from ets.algorithms.utils import accuracy, harmonic_mean
-from ets.algorithms.utils import topy
+from utils import accuracy, harmonic_mean
+from utils import topy
 from progressbar import ProgressBar, AnimatedMarker, Bar, AdaptiveETA, Percentage, ProgressBar, SimpleProgress
-import math
-from xcm_class import XCMModel
+
+
 class STRUT():
 
-        def __init__(self, timestamps, ts_length, variate, optimize, tsc_method, n_splits, class_imbalance, dataset):
+        def __init__(self, timestamps, ts_length, variate, optimize, tsc_method, n_splits, dataset):
             self.timestamps = timestamps
             self.tsc_method = tsc_method #MINIROCKET, MINIROCKET_FAV, WEASEL, WEASEL_FAV
             self.optimize = optimize
             self.variate = variate
             self.n_splits = n_splits
             self.ts_length = ts_length
-            self.class_imbalance = class_imbalance
             self.dataset = dataset
+
 
         def train_test_prefix(self, X_training, X_test, Y_training, Y_test):
 
             training_time, test_time = 0.0, 0.0
 
-            if self.tsc_method == "MINIROCKET" or self.tsc_method == "MINIROCKET_FAV" : # or self.tsc_method =="XCM":
+            if self.tsc_method == "MINIROCKET" or self.tsc_method == "MINIROCKET_FAV":
+            
+                if(self.variate > 1):  # if multivariate
 
-                if not (self.tsc_method == "XCM"):
-                    if(self.variate > 1):  # if multivariate
-
-                        transformation = MiniRocketMultivariate() 
-                    
-                    else: # if univariate 
-                    
-                        transformation = MiniRocket()     
-                else: ######## UPDATES HERE
-                    if(self.variate > 1):  # if multivariate
-                        #self.xcm.k= self.variate
-                        transformation = XCMModel()
-                    else:
-                        transformation = XCMModel()   
-                    
-
+                    transformation = MiniRocketMultivariate( ) 
+                
+                else: # if univariate 
+                
+                    transformation = MiniRocket( )     
 
                 transformation.fit(X_training)
-
-                if self.class_imbalance:
-                    classifier = RidgeClassifierCV(alphas = np.logspace(-3, 3, 10), class_weight = 'balanced')
-                else:
-                    
-                    classifier = RidgeClassifierCV(alphas = np.logspace(-3, 3, 10))
+                classifier = RidgeClassifierCV(alphas = np.logspace(-3, 3, 10))
 
             elif self.tsc_method == "WEASEL" or self.tsc_method == "WEASEL_FAV":
             
@@ -76,11 +62,7 @@ class STRUT():
                     transformation = WEASEL(word_size=3, n_bins = 2, window_sizes =  [ 0.4, 0.5,  0.6, 0.7, 0.8, 0.9], norm_mean = False, norm_std = False)
                 
                 transformation.fit(X_training, Y_training)
-
-                if self.class_imbalance:
-                    classifier = LogisticRegression(max_iter = 10000, class_weight = 'balanced')
-                else:
-                    classifier = LogisticRegression(max_iter = 10000)
+                classifier = LogisticRegression(max_iter = 10000)
             
             else:
                 print("Unsupported method")
@@ -120,125 +102,6 @@ class STRUT():
             data = from_nested_to_3d_numpy(data)[:,:,:tp]
             return  from_3d_numpy_to_nested(data)
 
-        def nan_handler(self, df, tsc_method):
-            pd.set_option("display.max_rows", None, "display.max_columns", None)
-            df = df.reset_index(drop =True)
-            if tsc_method == 'MINIROCKET' or tsc_method == 'MINIROCKET_FAV':
-                X_3d = from_nested_to_3d_numpy(df)
-                size, dim, tpoint = X_3d.shape
-                for i in range(size): # for each row
-                    for j in range(dim): # for each dimension
-                        prev = 0
-                        next = 0
-                        for k in range(tpoint): 
-                            if math.isnan(X_3d[i][j][k]): 
-                                for l in range(k+1, tpoint): # for each NaN
-                                    if not math.isnan(X_3d[i][j][l]): # find the next not NaN
-                                        next = X_3d[i][j][l]
-                                        break
-                                average = (next + prev) / 2
-                                prev = average
-                                X_3d[i][j][k] = average 
-                            else:
-                                prev = X_3d[i][j][k]
-                return from_3d_numpy_to_nested(X_3d)
-            else:
-                for index_r, row in df.iterrows():  # for each row
-                    prev = 0
-                    next = 0
-                    row = row.reset_index(drop=True)
-                    for index_c, item in row.iteritems():  # for each NaN
-                        if math.isnan(item):
-                            for index_a, real in row[index_c:].iteritems():  # find the next not NaN
-                                if not math.isnan(real):
-                                    next = real
-                                    break
-                            average = (next + prev) / 2
-                            prev = average
-                            df.iloc[int(index_r), index_c+1] = average
-                        else:
-                            prev = item
-            return df
-        
-        def xcm_strut(self, train_data, test_data): 
-            if isinstance(train_data, str):  # ARFF files provided as input (no CV)
-                X_TRAIN, Y_TRAIN = load_from_arff_to_dataframe(train_data)
-                X_TEST, Y_TEST = load_from_arff_to_dataframe(test_data)
-            elif isinstance(train_data, tuple):  # Perform CV
-                X_TRAIN, Y_TRAIN = train_data
-                X_TRAIN = self.nan_handler(X_TRAIN, self.tsc_method)
-                X_TEST, Y_TEST = test_data
-                X_TEST = self.nan_handler(X_TEST, self.tsc_method)
-            else:  # Single CSV file provided as input (no CV)
-                X_TRAIN, X_TEST, Y_TRAIN, Y_TEST = train_test_split(
-                    train_data, test_data, test_size=0.2, stratify=test_data, random_state=0
-                )
-                X_TRAIN = self.nan_handler(X_TRAIN, self.tsc_method)
-                X_TEST = self.nan_handler(X_TEST, self.tsc_method)
-
-            label_encoder = LabelEncoder()
-            Y_TRAIN = label_encoder.fit_transform(Y_TRAIN)
-            Y_TEST = label_encoder.transform(Y_TEST)
-
-            # Stratified Shuffle Split for cross-validation
-            kfold = StratifiedShuffleSplit(n_splits=self.n_splits, test_size=0.2, random_state=0)
-
-            training_time = np.zeros(self.n_splits)
-            test_time = np.zeros(self.n_splits)
-            accuracies = []
-            f1_scores = []
-            earlinesses = np.arange(1, self.ts_length + 1) / self.ts_length
-
-            for fold, (train_index, test_index) in enumerate(kfold.split(X_TRAIN, Y_TRAIN)):
-                X_train_cv, X_test_cv = X_TRAIN.iloc[train_index], X_TRAIN.iloc[test_index]
-                Y_train_cv, Y_test_cv = Y_TRAIN[train_index], Y_TRAIN[test_index]
-
-                fold_accuracies = []
-                fold_f1_scores = []
-
-                for trunc_length in range(9, self.ts_length + 1):  # Minimum length for XCM
-                    X_train_trunc = self.trunc_data(X_train_cv, trunc_length)
-                    X_test_trunc = self.trunc_data(X_test_cv, trunc_length)
-
-                    # Train and test using XCM
-                    result = self.train_test_xcm(X_train_trunc, X_test_trunc, Y_train_cv, Y_test_cv)
-
-                    fold_accuracies.append(result[1])  # Append accuracy
-                    fold_f1_scores.append(result[2])  # Append F1-score
-                    training_time[fold] += result[3]
-                    test_time[fold] += result[4]
-
-                accuracies.append(fold_accuracies)
-                f1_scores.append(fold_f1_scores)
-
-            # Aggregate metrics
-            accuracies = np.array(accuracies)
-            f1_scores = np.array(f1_scores)
-            accuracies_mean, accuracies_std = accuracies.mean(axis=0), accuracies.std(axis=0)
-            f1_scores_mean, f1_scores_std = f1_scores.mean(axis=0), f1_scores.std(axis=0)
-
-            harmonic_means = 2 * accuracies_mean * (1 - earlinesses) / (accuracies_mean + (1 - earlinesses))
-            harmonic_means_mean, harmonic_means_std = harmonic_means.mean(), harmonic_means.std()
-
-            # Identify optimal truncation point based on selected metric
-            if self.optimize == 0:  # Optimize for accuracy
-                best_index = np.argmax(accuracies_mean)
-            elif self.optimize == 1:  # Optimize for F1-score
-                best_index = np.argmax(f1_scores_mean)
-            elif self.optimize == 2:  # Optimize for harmonic mean
-                best_index = np.argmax(harmonic_means)
-
-            # Train and evaluate the final model
-            best_trunc_length = best_index + 9
-            X_train_best = self.trunc_data(X_TRAIN, best_trunc_length)
-            X_test_best = self.trunc_data(X_TEST, best_trunc_length)
-            final_result = self.train_test_xcm(X_train_best, X_test_best, Y_TRAIN, Y_TEST)
-
-            # Save metrics and plots
-            self.save_results("xcm", accuracies, f1_scores, harmonic_means, accuracies_mean, f1_scores_mean, harmonic_means_mean)
-
-            return final_result
-
 
         def minirocket_strut(self, train_data, test_data): # -> None:
             
@@ -249,16 +112,16 @@ class STRUT():
                 Y = Y_TRAIN
             elif isinstance(train_data, tuple): # perform cv 
                 X = train_data[0]
-                X = self.nan_handler(X, self.tsc_method)
+                X = X.fillna(0)
                 Y = train_data[1]
                 X_TRAIN = X
                 Y_TRAIN = Y
                 X_TEST = test_data[0]
-                X_TEST = self.nan_handler(X_TEST, self.tsc_method)
+                X_TEST = X_TEST.fillna(0)
                 Y_TEST = test_data[1]
             else: # single csv file provided as input (no cv)
                 X = train_data
-                X = self.nan_handler(X, self.tsc_method)
+                X = X.fillna(0)
                 Y = test_data
                 X_TRAIN , X_TEST, Y_TRAIN,  Y_TEST  = train_test_split(X, Y, test_size=0.2,  stratify = Y, random_state=0)
                 X = X_TRAIN 
@@ -590,7 +453,7 @@ class STRUT():
 
             os.makedirs('results', exist_ok=True) # create a directory to store results
             os.makedirs('results/'+self.dataset+'_metric_scores', exist_ok=True) # create a subdirectory to store metric scores
-            os.makedirs('results/'+self.dataset+'_plots', exist_ok=True) # create a subdirectory to store plots
+            os.makedirs('results/'+self.dataset+'_plots', exist_ok=True) # create a subdirectory to store olots
 
             # save metric scores in a 2d ndarray where each each row corresponds to a split 
             # and each column to a truncation time point starting from start = 11
@@ -678,20 +541,20 @@ class STRUT():
                 X_TRAIN, Y_TRAIN = load_from_arff_to_dataframe(train_data)
                 X_TEST, Y_TEST = load_from_arff_to_dataframe(test_data)
                 X = X_TRAIN.append(X_TEST)
-                X = nan_handler(X)
+                X = X.fillna(0)
                 Y = np.append(Y_TRAIN, Y_TEST)
             elif isinstance(train_data, tuple): # perform cv
                 X = train_data[0]
-                X = self.nan_handler(X, self.tsc_method)
+                X = X.fillna(0)
                 Y = train_data[1]
                 X_TRAIN = X
                 Y_TRAIN = Y
                 X_TEST = test_data[0]
-                X_TEST = self.nan_handler(X_TEST, self.tsc_method)
+                X_TEST = X_TEST.fillna(0)
                 Y_TEST = test_data[1]
             else:  # single csv file provided as input (no cv) 
                 X = train_data
-                X = self.nan_handler(X, self.tsc_method)
+                X = X.fillna(0)
                 Y = test_data
                 X_TRAIN , X_TEST, Y_TRAIN,  Y_TEST  = train_test_split(X, Y, test_size=0.2,  stratify = Y, random_state=0)
 
@@ -787,35 +650,37 @@ class STRUT():
 
                     else: # harmonic mean
                         
+                        
                         if mid - low < 2: # adjacent timepoints => can't bisect further
-                            if low_harmonic_mean >= mid_harmonic_mean:
+                            if low_harmonic_mean >= high_harmonic_mean:
                                 bisect_timepoints.append((low, low_harmonic_mean))
                                 break
                             else:
-                                bisect_timepoints.append((mid, mid_harmonic_mean))
+                                bisect_timepoints.append((mid, high_harmonic_mean))
                                 break 
                         elif high - mid < 2:
-                            if mid_harmonic_mean >= high_harmonic_mean:
-                                bisect_timepoints.append((mid, mid_harmonic_mean))
+                            if high_harmonic_mean >= high_harmonic_mean:
+                                bisect_timepoints.append((mid, high_harmonic_mean))
                                 break
                             else:
                                 bisect_timepoints.append((high, high_harmonic_mean))
                                 break 
-                        
-                        if high_harmonic_mean > mid_harmonic_mean and high_harmonic_mean > low_harmonic_mean:
+                
+
+                        if high_harmonic_mean > high_harmonic_mean and high_harmonic_mean > low_harmonic_mean:
                             bisect_timepoints.append((high, high_harmonic_mean))
                             low = mid 
                             mid += int((high-low)/2)
-                        elif low_harmonic_mean >= high_harmonic_mean and low_harmonic_mean >= mid_harmonic_mean:
+                        elif low_harmonic_mean >= high_harmonic_mean and low_harmonic_mean >= high_harmonic_mean:
                             bisect_timepoints.append((low, low_harmonic_mean))
                             high = mid 
                             mid = int((high-low)/2) + low
-                        elif mid_harmonic_mean >= high_harmonic_mean and mid_harmonic_mean > low_harmonic_mean:
+                        elif high_harmonic_mean >= high_harmonic_mean and high_harmonic_mean > low_harmonic_mean:
                             bisect_timepoints.append((mid, mid_result[1]))
                             low += int((mid-low)/2)
                             high = int((high-mid)/2) + mid
 
-                # sort bisect_timepoints by timepoint and then find max metric score
+                # sort  bisect_timepoints by timepoint and then find max metric score
                 bisect_timepoints.sort(key=lambda item:item[0])
                 best_timepoints.append(max(bisect_timepoints,key=lambda item:item[1])[0])
 
@@ -823,18 +688,19 @@ class STRUT():
                 evaluated_timepoints.sort() 
                 evaluated_timepoints = np.array(evaluated_timepoints)
                 
+
                 # sort metric score dicts by timepoint (key) in ascending order and convert to ndarray
                 accuracies = np.array([x[1] for x in sorted(accuracies.items())])
                 f1_scores = np.array([x[1] for x in sorted(f1_scores.items())])
                 harmonic_means = np.array([x[1] for x in sorted(harmonic_means.items())])
 
-                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_minirocket_fav_accuracy.txt','a') as f: #what if the user wants to delete the existing file before running again the experiment?
+                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_minirocket_strut_fav_accuracy.txt','a') as f: #what if the user wants to delete the existing file before running again the experiment?
                     np.savetxt(f, (evaluated_timepoints, accuracies),  delimiter=',')
 
-                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_minirocket_fav_f1_score.txt','a') as f: 
+                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_minirocket_strut_fav_f1_score.txt','a') as f: 
                     np.savetxt(f, (evaluated_timepoints,f1_scores),  delimiter=',')
 
-                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_minirocket_fav_harmonic_mean.txt','a') as f: 
+                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_minirocket_strut_fav_harmonic_mean.txt','a') as f: 
                     np.savetxt(f, (evaluated_timepoints,harmonic_means),  delimiter=',')
 
                 #plot accuracy
@@ -847,13 +713,12 @@ class STRUT():
                 plt.ylim(0.0,1.1)
                 plt.legend() 
                 plt.savefig('results/'+self.dataset+'_plots/minirocket_strut_fav_accuracy.pdf', format='pdf', dpi=320, bbox_inches='tight')  
-                
 
                 #plot f1-score
                 full_time_f1_score = np.repeat(f1_scores[-1], evaluated_timepoints.shape[0]) # full tsc f1 score for comparison
                 fig, ax = plt.subplots(figsize=(8, 6), dpi=80)
                 ax.plot(evaluated_timepoints, full_time_f1_score , '--', color = 'blue', label = "Minirocket Full-Time")
-                ax.plot(evaluated_timepoints, f1_scores, color = 'blue', label = "Minirocket STRUT-FAV") 
+                ax.plot(evaluated_timepoints, accuracies, color = 'blue', label = "Minirocket STRUT-FAV") 
                 plt.xlabel("Truncation Timepoint")
                 plt.ylabel("F1-score")
                 plt.ylim(0.0,1.1)
@@ -868,7 +733,7 @@ class STRUT():
                 plt.ylim(0.0,1.1)
                 plt.legend() 
                 plt.savefig('results/'+self.dataset+'_plots/minirocket_strut_fav_harmonic_mean.pdf', format='pdf', dpi=320, bbox_inches='tight') 
-                
+
                 
             #Test for best earliness
 
@@ -879,7 +744,7 @@ class STRUT():
             preds = [(best_timepoint,result[0][x]) for x in range(result[0].size)]
             testing_time = result[4]
             
-            return preds, training_time, testing_time, float(best_timepoint)/self.ts_length
+            return preds, training_time, testing_time, best_timepoint 
 
         def weasel_strut_fav(self, train_data, test_data):
 
@@ -1020,30 +885,32 @@ class STRUT():
 
                     else: # harmonic mean
                         
+                        
                         if mid - low < 2: # adjacent timepoints => can't bisect further
-                            if low_harmonic_mean >= mid_harmonic_mean:
+                            if low_harmonic_mean >= high_harmonic_mean:
                                 bisect_timepoints.append((low, low_harmonic_mean))
                                 break
                             else:
-                                bisect_timepoints.append((mid, mid_harmonic_mean))
+                                bisect_timepoints.append((mid, high_harmonic_mean))
                                 break 
                         elif high - mid < 2:
-                            if mid_harmonic_mean >= high_harmonic_mean:
-                                bisect_timepoints.append((mid, mid_harmonic_mean))
+                            if high_harmonic_mean >= high_harmonic_mean:
+                                bisect_timepoints.append((mid, high_harmonic_mean))
                                 break
                             else:
                                 bisect_timepoints.append((high, high_harmonic_mean))
                                 break 
-                        
-                        if high_harmonic_mean > mid_harmonic_mean and high_harmonic_mean > low_harmonic_mean:
+                
+
+                        if high_harmonic_mean > high_harmonic_mean and high_harmonic_mean > low_harmonic_mean:
                             bisect_timepoints.append((high, high_harmonic_mean))
                             low = mid 
                             mid += int((high-low)/2)
-                        elif low_harmonic_mean >= high_harmonic_mean and low_harmonic_mean >= mid_harmonic_mean:
+                        elif low_harmonic_mean >= high_harmonic_mean and low_harmonic_mean >= high_harmonic_mean:
                             bisect_timepoints.append((low, low_harmonic_mean))
                             high = mid 
                             mid = int((high-low)/2) + low
-                        elif mid_harmonic_mean >= high_harmonic_mean and mid_harmonic_mean > low_harmonic_mean:
+                        elif high_harmonic_mean >= high_harmonic_mean and high_harmonic_mean > low_harmonic_mean:
                             bisect_timepoints.append((mid, mid_result[1]))
                             low += int((mid-low)/2)
                             high = int((high-mid)/2) + mid
@@ -1062,13 +929,13 @@ class STRUT():
                 f1_scores = np.array([x[1] for x in sorted(f1_scores.items())])
                 harmonic_means = np.array([x[1] for x in sorted(harmonic_means.items())])
 
-                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_weasel_fav_accuracy.txt','a') as f: #what if the user wants to delete the existing file before running again the experiment?
+                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_weasel_strut_fav_accuracy.txt','a') as f: #what if the user wants to delete the existing file before running again the experiment?
                     np.savetxt(f, (evaluated_timepoints, accuracies),  delimiter=',')
 
-                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_weasel_fav_f1_score.txt','a') as f: 
+                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_weasel_strut_fav_f1_score.txt','a') as f: 
                     np.savetxt(f, (evaluated_timepoints,f1_scores),  delimiter=',')
 
-                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_weasel_fav_harmonic_mean.txt','a') as f: 
+                with open('results/'+self.dataset+'_metric_scores/'+self.dataset+'_weasel_strut_fav_harmonic_mean.txt','a') as f: 
                     np.savetxt(f, (evaluated_timepoints,harmonic_means),  delimiter=',')
 
                 #plot accuracy
@@ -1093,7 +960,6 @@ class STRUT():
                 plt.legend() 
                 plt.savefig('results/'+self.dataset+'_plots/weasel_strut_fav_f1_score.pdf', format='pdf', dpi=320, bbox_inches='tight') 
 
-
                 #plot harmonic mean
                 fig, ax = plt.subplots(figsize=(8, 6), dpi=80)
                 ax.plot(evaluated_timepoints, harmonic_means, color = 'blue', label = "Weasel STRUT-FAV") 
@@ -1117,4 +983,4 @@ class STRUT():
             testing_time = result[4]
 
 
-            return preds, training_time, testing_time, float(best_timepoint)/self.ts_length
+            return preds, training_time, testing_time, best_timepoint  
