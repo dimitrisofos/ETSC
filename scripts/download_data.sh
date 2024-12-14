@@ -34,8 +34,8 @@ if [[ ! -d "${DATA_FOLDER}" ]]; then
     wget --progress=bar:force --content-disposition -P ${DATA_FOLDER} ${MAR_REPO}
 
     # Unzip the data
-    unzip "${DATA_FOLDER}/Maritime_data.zip" -d ${DATA_FOLDER}
+    #unzip "${DATA_FOLDER}/Maritime_data.zip" -d ${DATA_FOLDER}
 
     # Remove the archive
-    rm "${DATA_FOLDER}/Maritime_data.zip"
+    #rm "${DATA_FOLDER}/Maritime_data.zip"
 fi
