@@ -550,8 +550,10 @@ def economy_k(config: Config, clusters, cost_time, lamb, random_state) -> None:
     else:
         train_and_test(config, classifier)
 
+
+########## XCM modification complete
 @cli.command()
-@click.option('-m', '--method', type=click.Choice(['MINIROCKET', 'WEASEL', 'MINIROCKET_FAV', 'WEASEL_FAV'], case_sensitive=False) , default=3, show_default=True,
+@click.option('-m', '--method', type=click.Choice(['MINIROCKET', 'WEASEL', 'MINIROCKET_FAV', 'WEASEL_FAV', "XCM"], case_sensitive=False) , default=3, show_default=True,
               help='Method variant to perform ETSC')
 @click.option('-p', '--optimize', type=click.IntRange(min=0, max=2), default=0, show_default=True,
               help='Metric to optimize: 0 - accuracy, 1 - F1-score, 2 - harmonic mean') 
@@ -749,6 +751,12 @@ def cv(config: Config, classifier: EarlyClassifier) -> None:
                 predictions, training_time, test_time, earliness = classifier.minirocket_strut_fav((config.cv_data.iloc[train_indices], config.cv_labels.iloc[train_indices]),(config.cv_data.iloc[test_indices], config.cv_labels.iloc[test_indices]))
             elif classifier.tsc_method == 'WEASEL_FAV':
                 predictions, training_time, test_time, earliness = classifier.weasel_strut_fav((config.cv_data[train_indices], config.cv_labels[train_indices]),(config.cv_data[test_indices], config.cv_labels[test_indices]))
+            elif classifier.tsc_method == 'XCM': 
+                predictions, training_time, test_time, earliness = classifier.xcm_strut(
+                    (config.cv_data[train_indices], config.cv_labels[train_indices]),
+                    (config.cv_data[test_indices], config.cv_labels[test_indices])
+                )
+
             else:
                 print("Unsupported method")
                 return  
@@ -969,6 +977,9 @@ def train_and_test(config: Config, classifier: EarlyClassifier) -> None:
                 predictions, training_time, test_time, earliness = classifier.minirocket_strut_fav(config.train_file, config.test_file)
             elif classifier.tsc_method == 'WEASEL_FAV':
                 predictions, training_time, test_time, earliness = classifier.weasel_strut_fav(config.train_file, config.test_file)
+            elif classifier.tsc_method == 'XCM':
+                predictions, training_time, test_time, earliness = classifier.xcm_strut(config.train_file, config.test_file)
+
             else:
                 print("Unsupported method")
                 return 

@@ -21,6 +21,7 @@ from ets.algorithms.utils import topy
 from progressbar import ProgressBar, AnimatedMarker, Bar, AdaptiveETA, Percentage, ProgressBar, SimpleProgress
 import math
 from xcm_class import XCMModel
+
 class STRUT():
 
         def __init__(self, timestamps, ts_length, variate, optimize, tsc_method, n_splits, class_imbalance, dataset):
@@ -34,88 +35,171 @@ class STRUT():
             self.dataset = dataset
 
         def train_test_prefix(self, X_training, X_test, Y_training, Y_test):
-
             training_time, test_time = 0.0, 0.0
 
-            if self.tsc_method == "MINIROCKET" or self.tsc_method == "MINIROCKET_FAV" : # or self.tsc_method =="XCM":
 
-                if not (self.tsc_method == "XCM"):
-                    if(self.variate > 1):  # if multivariate
+            if self.tsc_method == "XCM":
+                # Convert data to numpy arrays, handling any DataFrame structure
+                try:
+                    X_training_data = np.array([row.values.astype(float) for row in X_training.iloc[:, 0]])
+                    X_test_data = np.array([row.values.astype(float) for row in X_test.iloc[:, 0]])
+                except:
+                    # Fallback for different DataFrame structures
+                    X_training_data = X_training.values.astype(float)
+                    X_test_data = X_test.values.astype(float)
 
-                        transformation = MiniRocketMultivariate() 
+                # Debug prints
+                print("X_training_data shape:", X_training_data.shape)
+                print("self.variate:", self.variate)
+                
+                if self.variate > 1:
+                    n_samples = X_training_data.shape[0]
+                    n_timesteps = X_training_data.shape[1] // self.variate
                     
-                    else: # if univariate 
-                    
-                        transformation = MiniRocket()     
-                else: ######## UPDATES HERE
-                    if(self.variate > 1):  # if multivariate
-                        #self.xcm.k= self.variate
-                        transformation = XCMModel()
-                    else:
-                        transformation = XCMModel()   
-                    
+                    X_training_reshaped = X_training_data.reshape(n_samples, n_timesteps, self.variate)
+                    X_test_reshaped = X_test_data.reshape(X_test_data.shape[0], n_timesteps, self.variate)
+                else:
+                    n_samples = X_training_data.shape[0]
+                    n_timesteps = X_training_data.shape[1]
+                    X_training_reshaped = X_training_data.reshape(n_samples, n_timesteps, 1)
+                    X_test_reshaped = X_test_data.reshape(X_test_data.shape[0], n_timesteps, 1)
 
+                # Add channel dimension
+                X_training_reshaped = X_training_reshaped.reshape(n_samples, n_timesteps, -1, 1)
+                X_test_reshaped = X_test_reshaped.reshape(X_test_data.shape[0], n_timesteps, -1, 1)
+
+                input_shape = (n_timesteps, self.variate if self.variate > 1 else 1, 1)
+                n_classes = len(np.unique(Y_training))
+                        
+                # Initialize XCM model with appropriate parameters
+                transformation = XCMModel(
+                    input_shape=input_shape,
+                    n_class=n_classes,
+                    window_size=0.2  # This can be adjusted based on your needs
+                )
+                
+                # Build the model
+                model = transformation.build_model()
+                
+                # Compile the model
+                model.compile(
+                    optimizer='adam',
+                    loss='sparse_categorical_crossentropy',
+                    metrics=['accuracy']
+                )
+                
+                # Reshape data for XCM (adding channel dimension)
+                X_training_reshaped = X_training.reshape(n_samples, n_timesteps, n_features, 1)
+                X_test_reshaped = X_test.reshape(X_test.shape[0], n_timesteps, n_features, 1)
+                
+                # Train the model
+                time_a = time.perf_counter()
+                model.fit(
+                    X_training_reshaped,
+                    Y_training,
+                    epochs=50,
+                    batch_size=32,
+                    verbose=0
+                )
+                time_b = time.perf_counter()
+                training_time = time_b - time_a
+                
+                # Predict
+                time_a = time.perf_counter()
+                Y_pred = model.predict(X_test_reshaped)
+                Y_pred = np.argmax(Y_pred, axis=1)
+                time_b = time.perf_counter()
+                test_time = time_b - time_a
+
+            elif self.tsc_method == "MINIROCKET" or self.tsc_method == "MINIROCKET_FAV":
+                if self.variate > 1:
+                    transformation = MiniRocketMultivariate()
+                else:
+                    transformation = MiniRocket()
 
                 transformation.fit(X_training)
 
                 if self.class_imbalance:
-                    classifier = RidgeClassifierCV(alphas = np.logspace(-3, 3, 10), class_weight = 'balanced')
+                    classifier = RidgeClassifierCV(alphas=np.logspace(-3, 3, 10), class_weight='balanced')
                 else:
-                    
-                    classifier = RidgeClassifierCV(alphas = np.logspace(-3, 3, 10))
+                    classifier = RidgeClassifierCV(alphas=np.logspace(-3, 3, 10))
+
+                # Transform and train
+                time_a = time.perf_counter()
+                X_training_transform = transformation.transform(X_training)
+                time_b = time.perf_counter()
+                training_time += time_b - time_a
+
+                time_a = time.perf_counter()
+                X_test_transform = transformation.transform(X_test)
+                time_b = time.perf_counter()
+                test_time += time_b - time_a
+
+                time_a = time.perf_counter()
+                classifier.fit(X_training_transform, Y_training)
+                time_b = time.perf_counter()
+                training_time += time_b - time_a
+
+                time_a = time.perf_counter()
+                Y_pred = classifier.predict(X_test_transform)
+                time_b = time.perf_counter()
+                test_time += time_b - time_a
 
             elif self.tsc_method == "WEASEL" or self.tsc_method == "WEASEL_FAV":
-            
-                if(self.variate > 1  ): # if multivariate
-                    
-                    transformation = WEASELMUSE(word_size=3, n_bins=2, window_sizes =  [ 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], 
-                                            chi2_threshold=15, sparse=False, norm_mean = False, norm_std = False, drop_sum=False)
-                    
-
+                if self.variate > 1:
+                    transformation = WEASELMUSE(
+                        word_size=3,
+                        n_bins=2,
+                        window_sizes=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+                        chi2_threshold=15,
+                        sparse=False,
+                        norm_mean=False,
+                        norm_std=False,
+                        drop_sum=False
+                    )
                 else:
-                    transformation = WEASEL(word_size=3, n_bins = 2, window_sizes =  [ 0.4, 0.5,  0.6, 0.7, 0.8, 0.9], norm_mean = False, norm_std = False)
-                
+                    transformation = WEASEL(
+                        word_size=3,
+                        n_bins=2,
+                        window_sizes=[0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+                        norm_mean=False,
+                        norm_std=False
+                    )
+
                 transformation.fit(X_training, Y_training)
 
                 if self.class_imbalance:
-                    classifier = LogisticRegression(max_iter = 10000, class_weight = 'balanced')
+                    classifier = LogisticRegression(max_iter=10000, class_weight='balanced')
                 else:
-                    classifier = LogisticRegression(max_iter = 10000)
-            
+                    classifier = LogisticRegression(max_iter=10000)
+
+                # Transform and train
+                time_a = time.perf_counter()
+                X_training_transform = transformation.transform(X_training)
+                time_b = time.perf_counter()
+                training_time += time_b - time_a
+
+                time_a = time.perf_counter()
+                X_test_transform = transformation.transform(X_test)
+                time_b = time.perf_counter()
+                test_time += time_b - time_a
+
+                time_a = time.perf_counter()
+                classifier.fit(X_training_transform, Y_training)
+                time_b = time.perf_counter()
+                training_time += time_b - time_a
+
+                time_a = time.perf_counter()
+                Y_pred = classifier.predict(X_test_transform)
+                time_b = time.perf_counter()
+                test_time += time_b - time_a
+
             else:
                 print("Unsupported method")
                 return
 
-            # -- transform training ------------------------------------------------
-
-            time_a = time.perf_counter()
-            X_training_transform = transformation.transform(X_training)
-            time_b = time.perf_counter()
-            training_time += time_b - time_a
-
-            # -- transform test ----------------------------------------------------
-
-            time_a = time.perf_counter()
-            X_test_transform = transformation.transform(X_test)
-            time_b = time.perf_counter()
-            test_time += time_b - time_a
-
-            # -- training ----------------------------------------------------------
-
-            time_a = time.perf_counter()
-            classifier.fit(X_training_transform, Y_training)
-            time_b = time.perf_counter()
-            training_time += time_b - time_a
-
-            # -- test --------------------------------------------------------------
-
-            time_a = time.perf_counter()
-            Y_pred = classifier.predict(X_test_transform)
-            time_b = time.perf_counter()
-            test_time += time_b - time_a
-            
-            return (Y_pred, accuracy_score(Y_test, Y_pred), f1_score(Y_test, Y_pred, average = 'weighted'), training_time, test_time)
-
+            return (Y_pred, accuracy_score(Y_test, Y_pred), f1_score(Y_test, Y_pred, average='weighted'), training_time, test_time)
+        
         def trunc_data(self, data, tp):
             data = from_nested_to_3d_numpy(data)[:,:,:tp]
             return  from_3d_numpy_to_nested(data)
@@ -123,7 +207,7 @@ class STRUT():
         def nan_handler(self, df, tsc_method):
             pd.set_option("display.max_rows", None, "display.max_columns", None)
             df = df.reset_index(drop =True)
-            if tsc_method == 'MINIROCKET' or tsc_method == 'MINIROCKET_FAV':
+            if tsc_method == 'MINIROCKET' or tsc_method == 'MINIROCKET_FAV' or tsc_method == 'XCM':
                 X_3d = from_nested_to_3d_numpy(df)
                 size, dim, tpoint = X_3d.shape
                 for i in range(size): # for each row
@@ -160,84 +244,152 @@ class STRUT():
                             prev = item
             return df
         
-        def xcm_strut(self, train_data, test_data): 
-            if isinstance(train_data, str):  # ARFF files provided as input (no CV)
-                X_TRAIN, Y_TRAIN = load_from_arff_to_dataframe(train_data)
-                X_TEST, Y_TEST = load_from_arff_to_dataframe(test_data)
-            elif isinstance(train_data, tuple):  # Perform CV
-                X_TRAIN, Y_TRAIN = train_data
-                X_TRAIN = self.nan_handler(X_TRAIN, self.tsc_method)
-                X_TEST, Y_TEST = test_data
+        def xcm_strut(self, train_data, test_data):
+            if isinstance(train_data, str):  # arff files
+                # Load all dimensions for multivariate data
+                dimensions = []
+                for i in range(1, self.variate + 1):
+                    train_file = train_data.replace(f"Dimension{self.variate}", f"Dimension{i}")
+                    test_file = test_data.replace(f"Dimension{self.variate}", f"Dimension{i}")
+                    X_train_dim, y_train = load_from_arff_to_dataframe(train_file)
+                    X_test_dim, y_test = load_from_arff_to_dataframe(test_file)
+                    dimensions.append((X_train_dim, X_test_dim))
+                    if i == 1:  # Only need labels once
+                        Y_TRAIN, Y_TEST = y_train, y_test
+                
+                # Combine dimensions
+                X_TRAIN = pd.concat([dim[0] for dim in dimensions], axis=1)
+                X_TEST = pd.concat([dim[1] for dim in dimensions], axis=1)
+                X = X_TRAIN
+                Y = Y_TRAIN
+            elif isinstance(train_data, tuple):  # perform cv
+                X = train_data[0]
+                X = self.nan_handler(X, self.tsc_method)
+                Y = train_data[1]
+                X_TRAIN = X
+                Y_TRAIN = Y
+                X_TEST = test_data[0]
                 X_TEST = self.nan_handler(X_TEST, self.tsc_method)
-            else:  # Single CSV file provided as input (no CV)
-                X_TRAIN, X_TEST, Y_TRAIN, Y_TEST = train_test_split(
-                    train_data, test_data, test_size=0.2, stratify=test_data, random_state=0
-                )
-                X_TRAIN = self.nan_handler(X_TRAIN, self.tsc_method)
-                X_TEST = self.nan_handler(X_TEST, self.tsc_method)
+                Y_TEST = test_data[1]
+            else:  # single csv file
+                X = train_data
+                X = self.nan_handler(X, self.tsc_method)
+                Y = test_data
+                X_TRAIN, X_TEST, Y_TRAIN, Y_TEST = train_test_split(X, Y, test_size=0.2, stratify=Y, random_state=0)
+                X = X_TRAIN
+                Y = Y_TRAIN
 
             label_encoder = LabelEncoder()
-            Y_TRAIN = label_encoder.fit_transform(Y_TRAIN)
-            Y_TEST = label_encoder.transform(Y_TEST)
+            Y = label_encoder.fit_transform(Y)
 
-            # Stratified Shuffle Split for cross-validation
             kfold = StratifiedShuffleSplit(n_splits=self.n_splits, test_size=0.2, random_state=0)
+            start = max(9, int(0.1 * self.ts_length))
 
             training_time = np.zeros(self.n_splits)
             test_time = np.zeros(self.n_splits)
-            accuracies = []
-            f1_scores = []
-            earlinesses = np.arange(1, self.ts_length + 1) / self.ts_length
+            accuracies = np.zeros((self.n_splits, self.ts_length + 1 - start))
+            f1_scores = np.zeros((self.n_splits, self.ts_length + 1 - start))
+            earlinesses = np.array([float(x)/self.ts_length for x in range(start, self.ts_length + 1)])
 
-            for fold, (train_index, test_index) in enumerate(kfold.split(X_TRAIN, Y_TRAIN)):
-                X_train_cv, X_test_cv = X_TRAIN.iloc[train_index], X_TRAIN.iloc[test_index]
-                Y_train_cv, Y_test_cv = Y_TRAIN[train_index], Y_TRAIN[test_index]
+            fold = 0
+            n_classes = len(np.unique(Y))
 
-                fold_accuracies = []
-                fold_f1_scores = []
+            for train_index, test_index in kfold.split(X, Y):
+                X_training, X_testing = X.iloc[train_index], X.iloc[test_index]
+                Y_training, Y_testing = Y[train_index], Y[test_index]
 
-                for trunc_length in range(9, self.ts_length + 1):  # Minimum length for XCM
-                    X_train_trunc = self.trunc_data(X_train_cv, trunc_length)
-                    X_test_trunc = self.trunc_data(X_test_cv, trunc_length)
+                pbar = ProgressBar(widgets=['Split: ' + str(fold + 1) + " | ", SimpleProgress(), ' ', 
+                                        Percentage(), ' ', Bar(marker='-'), ' ', AdaptiveETA()])
 
-                    # Train and test using XCM
-                    result = self.train_test_xcm(X_train_trunc, X_test_trunc, Y_train_cv, Y_test_cv)
+                for i in pbar(range(start, self.ts_length + 1)):
+                    # Get 3D numpy array of shape (samples, dimensions, timesteps)
+                    X_training_data = from_nested_to_3d_numpy(X_training)[:,:,:i]
+                    X_testing_data = from_nested_to_3d_numpy(X_testing)[:,:,:i]
 
-                    fold_accuracies.append(result[1])  # Append accuracy
-                    fold_f1_scores.append(result[2])  # Append F1-score
-                    training_time[fold] += result[3]
-                    test_time[fold] += result[4]
+                    # print("Shape after 3d:", X_training_data.shape)
+                    
+                    # Transpose to (samples, timesteps, dimensions)
+                    X_training_data = np.transpose(X_training_data, (0, 2, 1))
+                    X_testing_data = np.transpose(X_testing_data, (0, 2, 1))
+                    
+                    # print("Shape after transpose:", X_training_data.shape)
+                    
+                    # Add channel dimension (samples, timesteps, dimensions, channel)
+                    X_training_reshaped = X_training_data.reshape(*X_training_data.shape, 1)
+                    X_testing_reshaped = X_testing_data.reshape(*X_testing_data.shape, 1)
 
-                accuracies.append(fold_accuracies)
-                f1_scores.append(fold_f1_scores)
+                    # print("Final shape:", X_training_reshaped.shape)
+                    # print("Expected shape:", (i, self.variate, 1))
 
-            # Aggregate metrics
-            accuracies = np.array(accuracies)
-            f1_scores = np.array(f1_scores)
-            accuracies_mean, accuracies_std = accuracies.mean(axis=0), accuracies.std(axis=0)
-            f1_scores_mean, f1_scores_std = f1_scores.mean(axis=0), f1_scores.std(axis=0)
+                    # Configure and train XCM model
+                    input_shape = (i, self.variate, 1)  
+                    xcm = XCMModel(input_shape=input_shape, n_class=n_classes, window_size=0.2)
+                    model = xcm.build_model()
+                    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
-            harmonic_means = 2 * accuracies_mean * (1 - earlinesses) / (accuracies_mean + (1 - earlinesses))
-            harmonic_means_mean, harmonic_means_std = harmonic_means.mean(), harmonic_means.std()
+                    time_a = time.perf_counter()
+                    model.fit(X_training_reshaped, Y_training, epochs=50, batch_size=32, verbose=0)
+                    time_b = time.perf_counter()
+                    training_time[fold] += time_b - time_a
 
-            # Identify optimal truncation point based on selected metric
-            if self.optimize == 0:  # Optimize for accuracy
-                best_index = np.argmax(accuracies_mean)
-            elif self.optimize == 1:  # Optimize for F1-score
-                best_index = np.argmax(f1_scores_mean)
-            elif self.optimize == 2:  # Optimize for harmonic mean
-                best_index = np.argmax(harmonic_means)
+                    time_a = time.perf_counter()
+                    Y_pred = model.predict(X_testing_reshaped)
+                    Y_pred = np.argmax(Y_pred, axis=1)
+                    time_b = time.perf_counter()
+                    test_time[fold] += time_b - time_a
 
-            # Train and evaluate the final model
-            best_trunc_length = best_index + 9
-            X_train_best = self.trunc_data(X_TRAIN, best_trunc_length)
-            X_test_best = self.trunc_data(X_TEST, best_trunc_length)
-            final_result = self.train_test_xcm(X_train_best, X_test_best, Y_TRAIN, Y_TEST)
+                    accuracies[fold][i - start] = accuracy_score(Y_testing, Y_pred)
+                    f1_scores[fold][i - start] = f1_score(Y_testing, Y_pred, average='weighted')
 
-            # Save metrics and plots
-            self.save_results("xcm", accuracies, f1_scores, harmonic_means, accuracies_mean, f1_scores_mean, harmonic_means_mean)
+                # Process best timepoints based on optimization criteria
+                if self.optimize == 0:  # optimize accuracy
+                    best_accuracy = accuracies[fold].max()
+                    optimal_timepoint = np.argmax(accuracies[fold])
+                elif self.optimize == 1:  # optimize f1 score
+                    best_f1_score = f1_scores[fold].max()
+                    optimal_timepoint = np.argmax(f1_scores[fold])
+                else:  # optimize harmonic mean
+                    harmonic_means = (2 * (1 - earlinesses) * accuracies[fold]) / ((1 - earlinesses) + accuracies[fold])
+                    optimal_timepoint = np.argmax(harmonic_means)
 
-            return final_result
+                fold += 1
+
+            # Save results
+            os.makedirs('results', exist_ok=True)
+            os.makedirs(f'results/{self.dataset}_metric_scores', exist_ok=True)
+            
+            np.savetxt(f'results/{self.dataset}_metric_scores/{self.dataset}_xcm_strut_accuracy.txt', accuracies, delimiter=',')
+            np.savetxt(f'results/{self.dataset}_metric_scores/{self.dataset}_xcm_strut_f1_score.txt', f1_scores, delimiter=',')
+
+            # Final prediction with best earliness
+            optimal_timepoint += start
+            X_TRAIN_final = from_nested_to_3d_numpy(X_TRAIN)[:,:,:optimal_timepoint]
+            X_TEST_final = from_nested_to_3d_numpy(X_TEST)[:,:,:optimal_timepoint]
+            
+            # Ensure labels are encoded
+            if not isinstance(Y_TRAIN[0], (int, float, np.integer)):
+                label_encoder = LabelEncoder()
+                Y_TRAIN = label_encoder.fit_transform(Y_TRAIN)
+                Y_TEST = label_encoder.transform(Y_TEST)
+
+            # Transpose and reshape for final prediction
+            X_TRAIN_final = np.transpose(X_TRAIN_final, (0, 2, 1))
+            X_TEST_final = np.transpose(X_TEST_final, (0, 2, 1))
+            X_TRAIN_final = X_TRAIN_final.reshape(*X_TRAIN_final.shape, 1)
+            X_TEST_final = X_TEST_final.reshape(*X_TEST_final.shape, 1)
+
+            # Final model training and prediction
+            input_shape = (optimal_timepoint, self.variate, 1)
+            final_model = XCMModel(input_shape=input_shape, n_class=n_classes, window_size=0.2).build_model()
+            final_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+            final_model.fit(X_TRAIN_final, Y_TRAIN, epochs=50, batch_size=32, verbose=0)
+            Y_pred = final_model.predict(X_TEST_final)
+            Y_pred = np.argmax(Y_pred, axis=1)
+            
+            preds = [(optimal_timepoint, y) for y in Y_pred]
+            earliness = float(optimal_timepoint)/self.ts_length
+
+            return preds, training_time.sum(), test_time.sum(), earliness
 
 
         def minirocket_strut(self, train_data, test_data): # -> None:
@@ -678,7 +830,7 @@ class STRUT():
                 X_TRAIN, Y_TRAIN = load_from_arff_to_dataframe(train_data)
                 X_TEST, Y_TEST = load_from_arff_to_dataframe(test_data)
                 X = X_TRAIN.append(X_TEST)
-                X = nan_handler(X)
+                X = self.nan_handler(X)
                 Y = np.append(Y_TRAIN, Y_TEST)
             elif isinstance(train_data, tuple): # perform cv
                 X = train_data[0]
