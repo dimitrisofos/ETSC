@@ -16,7 +16,7 @@ Description-Content-Type: text/markdown
 Algorithms](https://dx.doi.org/10.48786/edbt.2024.54)"**, Authors: Charilaos Akasiadis, Evgenios Kladis, Petro-Foti Kamberi, Evangelos Michelioudakis, Elias Alevizos, Alexander Artikis.
 
 Cite as:
-> Akasiadis, C., Kladis, E., Kamberi, P. F., Michelioudakis, E., Alevizos, E., & Artikis, A. (2024). A Framework to Evaluate Early Time-Series Classification Algorithms. EDBT 2024: 27th International Conference on Extending Database Technology, Proceedings (pp. 623–635). ISBN 978-3-89318-095-0 on OpenProceedings.org
+> Akasiadis, C., Kladis, E., Kamberi, P. F., Michelioudakis, E., Alevizos, E., & Artikis, A. (2024). A Framework to Evaluate Early Time-Series Classification Algorithms. EDBT 2024: 27th International Conference on Extending Database Technology, Proceedings (pp. 623β€“635). ISBN 978-3-89318-095-0 on OpenProceedings.org
 
 The aim of this work is to study and collect algorithms that conduct early time-series classification, in a user-friendly format, for researchers to use as a benchmark.
 
@@ -112,7 +112,7 @@ Note that only ECTS was implemented by us, using the paper of the algorithm as a
 | TEASER [\[paper\]](https://link.springer.com/article/10.1007/s10618-020-00690-z) [\[code\]](https://github.com/patrickzib/SFA) | S=20 (for the UCR_UEA), S=10 (for the biological and maritime) |
 | ECEC [\[paper\]](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=8765556) [\[code\]](https://github.com/junweilvhfut/ECEC)| training_times=20, length = len(time_series)/20,a=0.8 |
 | MLSTM [\[paper\]](https://www.sciencedirect.com/science/article/abs/pii/S0893608019301200?via%3Dihub) [\[code\]](https://github.com/titu1994/MLSTM-FCN) | LSTM cells = [8, 64, 128], tested_lengths = [0.4,0.5,0.6] %  |
-| ECONOMY-K [\[paper\]](https://link.springer.com/chapter/10.1007/978-3-319-23528-8_27) [\[code\]](https://tslearn.readthedocs.io/en/stable/user_guide/early.html) | k = [1, 2, 3], λ = 100, cost = 0.001  |
+| ECONOMY-K [\[paper\]](https://link.springer.com/chapter/10.1007/978-3-319-23528-8_27) [\[code\]](https://tslearn.readthedocs.io/en/stable/user_guide/early.html) | k = [1, 2, 3], Ξ» = 100, cost = 0.001  |
 ## Menu Guide
 
 After running the <em> Virtual Enviroment </em> commands stated above, by running `ets` a menu with all programming options appears.
@@ -203,3 +203,6 @@ If you want to see the algorithm's menu run:
 
 Any false product and misuse of the used algorithms is on the authors of the original papers. Please, inform us if you detect any misconduct or misuse of the code/datasets used in this repository.
 
+#   E T S C _ f o r _ s t r u t _ x c m 
+ 
+ # ETSC_for_strut_xcm

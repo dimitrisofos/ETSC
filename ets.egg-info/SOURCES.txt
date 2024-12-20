@@ -18,5 +18,7 @@ ets/algorithms/non_myopic.py
 ets/algorithms/strut.py
 ets/algorithms/teaser.py
 ets/algorithms/utils.py
+ets/algorithms/xcm.py
+ets/algorithms/xcm_class.py
 ets/algorithms/MLSTM/__init__.py
 ets/algorithms/MLSTM/mlstm_impl.py
